@@ -19,7 +19,7 @@ module LemonWay
       end
 
       def init(opts={})
-        opts.symbolize_keys!.camelize_keys!.ensure_keys %i(baseUri), required_default_attributes + optional_default_attributes
+        opts.symbolize_keys!.camelize_keys!.ensure_keys %w(baseUri).map!(&:to_sym), required_default_attributes + optional_default_attributes
         self.base_uri opts.delete(:baseUri)
         self.default_attributes =  opts
       end
@@ -43,7 +43,15 @@ module LemonWay
       end
 
       def query(type, method, attrs={})
-        response = send(type, "", :body => make_body(method, attrs), :format => :xml, :headers => {'Content-type' => 'text/xml; charset=utf-8'}) || {}
+        body = make_body(method, attrs)
+        Rails.logger.debug "LEMON WAY REQUEST TO '#{method}' : #{body}"
+        response = send(type, "", :body => body, :format => :xml, :headers => {'Content-type' => 'text/xml; charset=utf-8'}) || {}
+        Rails.logger.debug "LEMON WAY RESPONDED TO '#{method}' : #{response.body}"
+        
+        if response.code != 200 then
+          Rails.logger.warn "Lemonway did not reply with a HTTP Code 200 "
+          raise Error.new(:http_error)
+        end
 
         response_body = Hash.from_xml(response.body.gsub("xmlns=\"Service_mb\"",''))["Envelope"]["Body"]["#{method}Response"]["#{method}Result"]
         response_body = Hash.from_xml(response_body).with_indifferent_access.underscore_keys(true)
@@ -64,9 +72,9 @@ module LemonWay
       end
 
       module_eval do
-        def define_query_method name, required_attrs=[], optional_attrs=[], &block
+        def define_query_method name, version, required_attrs=[], optional_attrs=[], &block
           define_method name do |attrs, &method_block|
-            camelize_and_ensure_keys! attrs.update(default_attributes), required_attrs, optional_attrs
+            camelize_and_ensure_keys! attrs.update({version: version}).update(default_attributes), required_attrs, optional_attrs
 
             [:amount, :amountTot, :amountCom].each do |key|
               attrs[key] = sprintf("%.2f",attrs[key]) if attrs.has_key?(key)
@@ -116,8 +124,8 @@ module LemonWay
       extend self
       include HTTParty
 
-      self.required_default_attributes = %i(wlLogin wlPass wlPDV version language channel walletIp)
-      self.optional_default_attributes = %i(format model walletUa)
+      self.required_default_attributes = %w(wlLogin wlPass wlPdv version language channel walletIp).map!(&:to_sym)
+      self.optional_default_attributes = %w(format model walletUa).map!(&:to_sym)
 
       format :xml
 
@@ -128,8 +136,8 @@ module LemonWay
       #* L’application traite la réponse de Lemon Way et affiche un message de confirmation
       #@param attrs [Hash{String, Symbol => String, Number}]
       #@return [String] Identifiant du wallet inscrit avec succès, ex: ￼￼336123456 78
-      define_query_method :register_wallet, %i(wallet clientMail clientFirstName clientLastName), %i(clientTitle clientHandset ctry) do |response|
-        response[:wallet][:id]
+      define_query_method :register_wallet, "1.1", %w(wallet clientMail clientFirstName clientLastName).map!(&:to_sym), %w(clientTitle phoneNumber ctry).map!(&:to_sym) do |response|
+        response[:wallet]
       end
 
       #Avec la méthode « GetWalletDetails», la MARQUE BLANCHE peut vérifier les détails d’un wallet de son système : statut, solde, IBAN rattaché, etc.
@@ -148,7 +156,7 @@ module LemonWay
       #  - s [Integer] Statut du wallet :
       #    - 5 : enregistré (statut donné après création) 6 : documents envoyés
       #    - 12 : fermé
-      define_query_method :get_wallet_details, %i(wallet) do |response|
+      define_query_method :get_wallet_details, "1.3", %w(wallet).map!(&:to_sym) do |response|
         response[:wallet]
       end
 
@@ -181,7 +189,7 @@ module LemonWay
       #  - :com     [Number] Commission prélevée par la MARQUE BLANCHE , ex:2.00
       #  - :msg     [Number] Commentaire ex : Commande numéro 245
       #  - :status  Non utilisé dans le kit MARQUE BLANCHE
-      define_query_method :money_in, %i(wallet cardType cardNumber cardCrypto cardDate amountTot), %i(amountCom message) do |response|
+      define_query_method :money_in, "1.0", %w(wallet cardType cardNumber cardCrypto cardDate amountTot).map!(&:to_sym), %w(amountCom comment autoCommission).map!(&:to_sym) do |response|
         response["trans"]["hpay"]
       end
 
@@ -218,7 +226,7 @@ module LemonWay
       #     1 : proposer d’utiliser une carte enregistrée ou enregistrer la
       #     <em>\[0 :1] car</em>
       #@return [String] Token de paiement à passer en GET vers l’URL du webkit
-      define_query_method :money_in_web_init, %i(wallet amountTot wkToken returnUrl errorUrl cancelUrl), %i(amountCom message useRegisteredCard) do |response|
+      define_query_method :money_in_web_init, "1.1", %w(wallet amountTot wkToken returnUrl errorUrl cancelUrl).map!(&:to_sym), %w(amountCom message autoCommission useRegisteredCard).map!(&:to_sym) do |response|
         response["moneyinweb"]["token"]
       end
 
@@ -235,7 +243,7 @@ module LemonWay
       #   - :card_code* Cryptogramme[String] de la carte, [3 : 4] car
       #   - :card_date* [String] Date d’expiration de la carte, 7 car
       #@return [String] Identifiant de la carte enregistrée
-      define_query_method :register_card, %i(wallet cardType cardNumber cardCode cardDate) do |response|
+      define_query_method :register_card, "1.0", %w(wallet cardType cardNumber cardCode cardDate).map!(&:to_sym) do |response|
         response["card"]["id"]
       end
 
@@ -251,7 +259,7 @@ module LemonWay
       #   - :wallet* [String] Identifiant du wallet, max 256
       #   - :card_id* [String] Identifiant de la carte bancaire à désactiver max 12
       #@return [string] identifiant de la carte enregistrée
-      define_query_method :unregister_card, %i(wallet cardId) do |response|
+      define_query_method :unregister_card, "1.0", %w(wallet cardId).map!(&:to_sym) do |response|
         response["card"]["id"]
       end
 
@@ -268,7 +276,7 @@ module LemonWay
       # - :amountCom   [Number] Montant que la MARQUE BLANCHE souhaite prélever
       # - :message     [String] Commentaire du paiement
       #@return [HashWithIndifferentAccess{key => String, Number}]
-      define_query_method :money_in_with_card_id, %i(wallet cardId amountTot), %i(amountCom message) do |response|
+      define_query_method :money_in_with_card_id, "1.0", %w(wallet cardId amountTot).map!(&:to_sym), %w(amountCom message autoCommission).map!(&:to_sym) do |response|
         response[:trans][:hpay]
       end
 
@@ -293,39 +301,39 @@ module LemonWay
       #  - :com [Number] Commission de la demande, ex: 0.00
       #  - :msg [String] Commentaire de la demande, ex: Commande numéro 245
       #  - :status [String] Non utilisé dans le kit MARCHAND
-      define_query_method :send_payment, %i(debitWallet creditWallet amount message) do |response|
+      define_query_method :send_payment, "1.0", %w(debitWallet creditWallet amount message).map!(&:to_sym) do |response|
         response["trans"]["hpay"]
       end
 
 
       #Virement
-      define_query_method :money_out, %i(wallet amountTot), %i(amountCom message desc ibanID) do |response|
+      define_query_method :money_out, "1.3", %w(wallet amountTot).map!(&:to_sym), %w(amountCom autoCom message ibanID).map!(&:to_sym) do |response|
         response[:trans][:hpay]
       end
 
       # Rechercher un paiement
       # @return [Array (HashWithIndifferentAccess{key => String, Number})]
-      define_query_method :get_payment_details, %i(transactionId transactionComment) do |response|
+      define_query_method :get_payment_details, "1.0", %w(transactionId transactionComment).map!(&:to_sym) do |response|
         response[:trans][:hpay]
       end
 
       # Rechercher un money-in
       # @return [Array (HashWithIndifferentAccess{key => String, Number})]
-      define_query_method :get_money_in_trans_details, %i(), %i(transactionId transactionComment) do |response|
+      define_query_method :get_money_in_trans_details, "1.3", %w().map!(&:to_sym), %w(transactionId transactionComment transactionMerchantToken).map!(&:to_sym) do |response|
         response[:trans][:hpay]
       end
 
       #  Rechercher un money-out
       # @return [Array (HashWithIndifferentAccess{key => String, Number})]
-      define_query_method :get_money_out_trans_details, %i(), %i(transactionId transactionComment) do |response|
+      define_query_method :get_money_out_trans_details, "1.0", %w().map!(&:to_sym), %w(transactionId transactionComment).map!(&:to_sym) do |response|
         response[:trans][:hpay]
       end
 
-      define_query_method :upload_file, %i(wallet fileName type buffer) do |response|
+      define_query_method :upload_file, "1.1", %w(wallet fileName type buffer).map!(&:to_sym) do |response|
         response[:upload][:id]
       end
 
-      define_query_method :get_kyc_status, %i(updateDate) do |response|
+      define_query_method :get_kyc_status, "1.2", %w(updateDate).map!(&:to_sym) do |response|
         if response[:wallets] and response[:wallets].has_key? :wallet
           Array.wrap(response[:wallets][:wallet]).flatten
         else
@@ -333,11 +341,11 @@ module LemonWay
         end
       end
 
-      define_query_method :registerIBAN, %i(wallet holder bic iban dom1 dom2) do |response|
+      define_query_method :registerIBAN, "1.1", %w(wallet holder bic iban dom1 dom2).map!(&:to_sym) do |response|
         response[:iban]
       end
 
-      define_query_method :getMoneyInIBANDetails, %i(updateDate) do |response|
+      define_query_method :getMoneyInIBANDetails, "1.0", %w(updateDate).map!(&:to_sym) do |response|
         if response[:trans] and response[:trans].has_key? :hpay
           Array.wrap(response[:trans][:hpay]).flatten
         else
@@ -351,8 +359,8 @@ module LemonWay
       include HTTParty
 
 
-      self.optional_default_attributes = %i()
-      self.required_default_attributes = %i()
+      self.optional_default_attributes = %w().map!(&:to_sym)
+      self.required_default_attributes = %w().map!(&:to_sym)
 
       format :xml
 
