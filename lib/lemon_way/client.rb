@@ -74,7 +74,7 @@ module LemonWay
       module_eval do
         def define_query_method name, version, required_attrs=[], optional_attrs=[], &block
           define_method name do |attrs, &method_block|
-            camelize_and_ensure_keys! attrs.update({version: version}).update(default_attributes), required_attrs, optional_attrs
+            camelize_and_ensure_keys! attrs.update(default_attributes).update({version: version}), required_attrs, optional_attrs
 
             [:amount, :amountTot, :amountCom].each do |key|
               attrs[key] = sprintf("%.2f",attrs[key]) if attrs.has_key?(key)
