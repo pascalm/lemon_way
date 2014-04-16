@@ -311,7 +311,7 @@ module LemonWay
 
 
       #Virement
-      define_query_method :money_out, "1.3", %w(wallet amountTot).map!(&:to_sym), %w(amountCom autoCom message ibanID).map!(&:to_sym) do |response|
+      define_query_method :money_out, "1.3", %w(wallet amountTot).map!(&:to_sym), %w(amountCom autoCommission message ibanID).map!(&:to_sym) do |response|
         response[:trans][:hpay]
       end
 
