@@ -160,7 +160,7 @@ module LemonWay
         response[:wallet]
       end
 
-      define_query_method :update_wallet_details, "1.0", %w(wallet).map!(&:to_sym), %w(newMail newFirstName newLastName newTitle newPhoneNumber newCtry).map!(&:to_sym) do |response|
+      define_query_method :update_wallet_details, "1.0", %w(wallet).map!(&:to_sym), %w(newEmail newFirstName newLastName newTitle newPhoneNumber newCtry).map!(&:to_sym) do |response|
         response[:wallet]
       end
 
